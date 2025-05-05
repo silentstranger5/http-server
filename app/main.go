@@ -95,12 +95,6 @@ func handle_request(req request) response {
 	}
 
 	targetparts := strings.Split(req.target, "/")
-	if len(targetparts) < 3 {
-		rescode = "400"
-		resphrase = "Not Found"
-		return response{resversion, rescode, resphrase, resbody, resheaders}
-	}
-
 	method := targetparts[1]
 	switch method {
 	case "echo":
@@ -109,6 +103,19 @@ func handle_request(req request) response {
 		resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(msg)))
 		resheaders = append(resheaders, "")
 		resbody = msg
+	case "user-agent":
+		for _, header := range req.headers {
+			headerparts := strings.Split(header, ": ")
+			headertype := headerparts[0]
+			headervalue := headerparts[1]
+			if headertype == "User-Agent" {
+				resheaders = append(resheaders, "Content-Type: text/plain")
+				resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(headervalue)))
+				resheaders = append(resheaders, "")
+				resbody = headervalue
+				break
+			}
+		}
 	default:
 		rescode = "400"
 		resphrase = "Not Found"
