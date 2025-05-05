@@ -8,10 +8,6 @@ import (
 	"strings"
 )
 
-// Ensures gofmt doesn't remove the "net" and "os" imports above (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
-
 func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
@@ -93,24 +89,33 @@ type response struct {
 
 func handle_request(req request) response {
 	res := response{"HTTP/1.1", "200", "OK", "", make([]string, 0)}
-	targetparts := strings.Split(req.target, "/")
 	if req.method == "GET" {
-		handle_get_request(&req, &res, targetparts)
+		handle_get_request(&req, &res)
 	} else if req.method == "POST" {
-		handle_post_request(&req, &res, targetparts)
+		handle_post_request(&req, &res)
 	}
 	return res
 }
 
-func handle_get_request(req *request, res *response, targetparts []string) {
+func handle_get_request(req *request, res *response) {
+	targetparts := strings.Split(req.target, "/")
+	method := targetparts[1]
+	args := make([]string, 0)
+	if len(targetparts) > 2 {
+		args = targetparts[2:]
+	}
 	if req.target == "/" {
 		return
 	}
 
-	method := targetparts[1]
 	switch method {
 	case "echo":
-		msg := targetparts[2]
+		if len(args) == 0 {
+			res.code = "400"
+			res.phrase = "Bad Request"
+			return
+		}
+		msg := args[0]
 		res.headers = append(res.headers, "Content-Type: text/plain")
 		res.headers = append(res.headers, fmt.Sprintf("Content-Length: %d", len(msg)))
 		res.headers = append(res.headers, "")
@@ -129,7 +134,12 @@ func handle_get_request(req *request, res *response, targetparts []string) {
 			}
 		}
 	case "files":
-		filename := targetparts[2]
+		if len(args) == 0 {
+			res.code = "400"
+			res.phrase = "Bad Request"
+			return
+		}
+		filename := args[0]
 		_, err := os.Stat(filename)
 		if os.IsNotExist(err) {
 			res.code = "400"
@@ -151,11 +161,22 @@ func handle_get_request(req *request, res *response, targetparts []string) {
 	}
 }
 
-func handle_post_request(req *request, res *response, targetparts []string) {
+func handle_post_request(req *request, res *response) {
+	targetparts := strings.Split(req.target, "/")
 	method := targetparts[1]
+	args := make([]string, 0)
+	if len(targetparts) > 2 {
+		args = targetparts[2:]
+	}
+
 	switch method {
 	case "files":
-		filename := targetparts[2]
+		if len(args) == 0 {
+			res.code = "400"
+			res.phrase = "Bad Request"
+			return
+		}
+		filename := args[0]
 		file, err := os.Create(filename)
 		if err != nil {
 			fmt.Println("Failed to create file:", err)
