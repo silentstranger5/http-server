@@ -112,48 +112,75 @@ func handle_request(req request) response {
 		return response{resversion, rescode, resphrase, resbody, resheaders}
 	}
 
-	targetparts := strings.Split(req.target, "/")
-	method := targetparts[1]
-	switch method {
-	case "echo":
-		msg := targetparts[2]
-		resheaders = append(resheaders, "Content-Type: text/plain")
-		resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(msg)))
-		resheaders = append(resheaders, "")
-		resbody = msg
-	case "user-agent":
-		for _, header := range req.headers {
-			headerparts := strings.Split(header, ": ")
-			headertype := headerparts[0]
-			headervalue := headerparts[1]
-			if headertype == "User-Agent" {
-				resheaders = append(resheaders, "Content-Type: text/plain")
-				resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(headervalue)))
-				resheaders = append(resheaders, "")
-				resbody = headervalue
-				break
+	if req.method == "GET" {
+		targetparts := strings.Split(req.target, "/")
+		method := targetparts[1]
+		switch method {
+		case "echo":
+			msg := targetparts[2]
+			resheaders = append(resheaders, "Content-Type: text/plain")
+			resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(msg)))
+			resheaders = append(resheaders, "")
+			resbody = msg
+		case "user-agent":
+			for _, header := range req.headers {
+				headerparts := strings.Split(header, ": ")
+				headertype := headerparts[0]
+				headervalue := headerparts[1]
+				if headertype == "User-Agent" {
+					resheaders = append(resheaders, "Content-Type: text/plain")
+					resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(headervalue)))
+					resheaders = append(resheaders, "")
+					resbody = headervalue
+					break
+				}
 			}
-		}
-	case "files":
-		filename := targetparts[2]
-		_, err := os.Stat(filename)
-		if os.IsNotExist(err) {
+		case "files":
+			filename := targetparts[2]
+			_, err := os.Stat(filename)
+			if os.IsNotExist(err) {
+				rescode = "400"
+				resphrase = "Not Found"
+				return response{resversion, rescode, resphrase, resbody, resheaders}
+			}
+			buf, err := os.ReadFile(filename)
+			if err != nil {
+				fmt.Println("Failed to read file:", err)
+				os.Exit(1)
+			}
+			resheaders = append(resheaders, "Content-Type: application/octet-stream")
+			resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(buf)))
+			resheaders = append(resheaders, "")
+			resbody = string(buf)
+		default:
 			rescode = "400"
 			resphrase = "Not Found"
-			return response{resversion, rescode, resphrase, resbody, resheaders}
 		}
-		buf, err := os.ReadFile(filename)
-		if err != nil {
-			fmt.Println("Failed to read file:", err)
-			os.Exit(1)
+	}
+
+	if req.method == "POST" {
+		targetparts := strings.Split(req.target, "/")
+		method := targetparts[1]
+		switch method {
+		case "files":
+			filename := targetparts[2]
+			file, err := os.Create(filename)
+			if err != nil {
+				fmt.Println("Failed to create file:", err)
+				os.Exit(1)
+			}
+			defer file.Close()
+			_, err = file.WriteString(req.body)
+			if err != nil {
+				fmt.Println("Failed to write to file", filename, ":", err)
+				os.Exit(1)
+			}
+			rescode = "201"
+			resphrase = "Created"
+		default:
+			rescode = "400"
+			resphrase = "Not Found"
 		}
-		resheaders = append(resheaders, "Content-Type: application/octet-stream")
-		resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(buf)))
-		resheaders = append(resheaders, "")
-		resbody = string(buf)
-	default:
-		rescode = "400"
-		resphrase = "Not Found"
 	}
 
 	return response{resversion, rescode, resphrase, resbody, resheaders}
