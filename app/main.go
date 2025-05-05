@@ -21,13 +21,11 @@ func main() {
 
 	dir := flag.String("directory", ".", "Specify directory to use")
 	flag.Parse()
-
 	_, err = os.Stat(*dir)
 	if os.IsNotExist(err) {
 		fmt.Println("Directory", *dir, "does not exist")
 		os.Exit(1)
 	}
-
 	err = os.Chdir(*dir)
 	if err != nil {
 		fmt.Println("Failed to change directory:", err)
@@ -69,27 +67,19 @@ type request struct {
 	method  string
 	target  string
 	version string
-	headers []string
 	body    string
+	headers []string
 }
 
 func parse_request(buf []byte) request {
-	req := strings.Split(string(buf), "\r\n")
-	reqline := req[0]
-	reqheaders := req[1 : len(req)-2]
-	reqbody := req[len(req)-1]
-
-	reqparts := strings.Split(reqline, " ")
-	reqmethod := reqparts[0]
-	reqtarget := reqparts[1]
-	reqversion := reqparts[2]
-
+	reqparts := strings.Split(string(buf), "\r\n")
+	reqline := strings.Split(reqparts[0], " ")
 	return request{
-		method:  reqmethod,
-		target:  reqtarget,
-		version: reqversion,
-		headers: reqheaders,
-		body:    reqbody,
+		reqline[0],
+		reqline[1],
+		reqline[2],
+		reqparts[len(reqparts)-1],
+		reqparts[1 : len(reqparts)-2],
 	}
 }
 
@@ -102,88 +92,87 @@ type response struct {
 }
 
 func handle_request(req request) response {
-	resversion := "HTTP/1.1"
-	rescode := "200"
-	resphrase := "OK"
-	resheaders := make([]string, 0)
-	resbody := ""
-
-	if req.target == "/" {
-		return response{resversion, rescode, resphrase, resbody, resheaders}
-	}
-
+	res := response{"HTTP/1.1", "200", "OK", "", make([]string, 0)}
+	targetparts := strings.Split(req.target, "/")
 	if req.method == "GET" {
-		targetparts := strings.Split(req.target, "/")
-		method := targetparts[1]
-		switch method {
-		case "echo":
-			msg := targetparts[2]
-			resheaders = append(resheaders, "Content-Type: text/plain")
-			resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(msg)))
-			resheaders = append(resheaders, "")
-			resbody = msg
-		case "user-agent":
-			for _, header := range req.headers {
-				headerparts := strings.Split(header, ": ")
-				headertype := headerparts[0]
-				headervalue := headerparts[1]
-				if headertype == "User-Agent" {
-					resheaders = append(resheaders, "Content-Type: text/plain")
-					resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(headervalue)))
-					resheaders = append(resheaders, "")
-					resbody = headervalue
-					break
-				}
-			}
-		case "files":
-			filename := targetparts[2]
-			_, err := os.Stat(filename)
-			if os.IsNotExist(err) {
-				rescode = "400"
-				resphrase = "Not Found"
-				return response{resversion, rescode, resphrase, resbody, resheaders}
-			}
-			buf, err := os.ReadFile(filename)
-			if err != nil {
-				fmt.Println("Failed to read file:", err)
-				os.Exit(1)
-			}
-			resheaders = append(resheaders, "Content-Type: application/octet-stream")
-			resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(buf)))
-			resheaders = append(resheaders, "")
-			resbody = string(buf)
-		default:
-			rescode = "400"
-			resphrase = "Not Found"
-		}
+		handle_get_request(&req, &res, targetparts)
+	} else if req.method == "POST" {
+		handle_post_request(&req, &res, targetparts)
+	}
+	return res
+}
+
+func handle_get_request(req *request, res *response, targetparts []string) {
+	if req.target == "/" {
+		return
 	}
 
-	if req.method == "POST" {
-		targetparts := strings.Split(req.target, "/")
-		method := targetparts[1]
-		switch method {
-		case "files":
-			filename := targetparts[2]
-			file, err := os.Create(filename)
-			if err != nil {
-				fmt.Println("Failed to create file:", err)
-				os.Exit(1)
+	method := targetparts[1]
+	switch method {
+	case "echo":
+		msg := targetparts[2]
+		res.headers = append(res.headers, "Content-Type: text/plain")
+		res.headers = append(res.headers, fmt.Sprintf("Content-Length: %d", len(msg)))
+		res.headers = append(res.headers, "")
+		res.body = msg
+	case "user-agent":
+		for _, header := range req.headers {
+			headerparts := strings.Split(header, ": ")
+			headertype := headerparts[0]
+			headervalue := headerparts[1]
+			if headertype == "User-Agent" {
+				res.headers = append(res.headers, "Content-Type: text/plain")
+				res.headers = append(res.headers, fmt.Sprintf("Content-Length: %d", len(headervalue)))
+				res.headers = append(res.headers, "")
+				res.body = headervalue
+				break
 			}
-			defer file.Close()
-			_, err = file.WriteString(req.body)
-			if err != nil {
-				fmt.Println("Failed to write to file", filename, ":", err)
-				os.Exit(1)
-			}
-			rescode = "201"
-			resphrase = "Created"
-		default:
-			rescode = "400"
-			resphrase = "Not Found"
 		}
+	case "files":
+		filename := targetparts[2]
+		_, err := os.Stat(filename)
+		if os.IsNotExist(err) {
+			res.code = "400"
+			res.phrase = "Not Found"
+			return
+		}
+		buf, err := os.ReadFile(filename)
+		if err != nil {
+			fmt.Println("Failed to read file:", err)
+			os.Exit(1)
+		}
+		res.headers = append(res.headers, "Content-Type: application/octet-stream")
+		res.headers = append(res.headers, fmt.Sprintf("Content-Length: %d", len(buf)))
+		res.headers = append(res.headers, "")
+		res.body = string(buf)
+	default:
+		res.code = "400"
+		res.phrase = "Not Found"
 	}
+}
 
-	return response{resversion, rescode, resphrase, resbody, resheaders}
+func handle_post_request(req *request, res *response, targetparts []string) {
+	method := targetparts[1]
+	switch method {
+	case "files":
+		filename := targetparts[2]
+		file, err := os.Create(filename)
+		if err != nil {
+			fmt.Println("Failed to create file:", err)
+			os.Exit(1)
+		}
+		defer file.Close()
+		_, err = file.WriteString(req.body)
+		if err != nil {
+			fmt.Println("Failed to write to file", filename, ":", err)
+			os.Exit(1)
+		}
+		res.code = "201"
+		res.phrase = "Created"
+	default:
+		res.code = "400"
+		res.phrase = "Not Found"
+	}
 }
 
 func serialize_response(res response) []byte {
