@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,21 @@ func main() {
 	l, err := net.Listen("tcp", "0.0.0.0:4221")
 	if err != nil {
 		fmt.Println("Failed to bind to port 4221")
+		os.Exit(1)
+	}
+
+	dir := flag.String("directory", ".", "Specify directory to use")
+	flag.Parse()
+
+	_, err = os.Stat(*dir)
+	if os.IsNotExist(err) {
+		fmt.Println("Directory", *dir, "does not exist")
+		os.Exit(1)
+	}
+
+	err = os.Chdir(*dir)
+	if err != nil {
+		fmt.Println("Failed to change directory:", err)
 		os.Exit(1)
 	}
 
@@ -118,6 +134,23 @@ func handle_request(req request) response {
 				break
 			}
 		}
+	case "files":
+		filename := targetparts[2]
+		_, err := os.Stat(filename)
+		if os.IsNotExist(err) {
+			rescode = "400"
+			resphrase = "Not Found"
+			return response{resversion, rescode, resphrase, resbody, resheaders}
+		}
+		buf, err := os.ReadFile(filename)
+		if err != nil {
+			fmt.Println("Failed to read file:", err)
+			os.Exit(1)
+		}
+		resheaders = append(resheaders, "Content-Type: application/octet-stream")
+		resheaders = append(resheaders, fmt.Sprintf("Content-Length: %d", len(buf)))
+		resheaders = append(resheaders, "")
+		resbody = string(buf)
 	default:
 		rescode = "400"
 		resphrase = "Not Found"
