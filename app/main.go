@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -40,18 +42,11 @@ func main() {
 }
 
 func handle_conn(conn net.Conn) {
-	buf := make([]byte, 1024)
-	_, err := conn.Read(buf)
-	if err != nil {
-		fmt.Println("Failed to read connection:", err)
-		os.Exit(1)
-	}
-
-	req := parse_request(buf)
+	req := parse_request(conn)
 	res := handle_request(req)
-	buf = serialize_response(res)
+	buf := serialize_response(res)
 
-	_, err = conn.Write(buf)
+	_, err := conn.Write(buf)
 	if err != nil {
 		fmt.Println("Failed to write to connection:", err)
 		os.Exit(1)
@@ -64,19 +59,48 @@ type request struct {
 	target  string
 	version string
 	body    string
-	headers []string
+	headers map[string]string
 }
 
-func parse_request(buf []byte) request {
-	reqparts := strings.Split(string(buf), "\r\n")
-	reqline := strings.Split(reqparts[0], " ")
-	return request{
-		reqline[0],
-		reqline[1],
-		reqline[2],
-		reqparts[len(reqparts)-1],
-		reqparts[1 : len(reqparts)-2],
+func parse_request(conn net.Conn) request {
+	reader := bufio.NewReader(conn)
+	reqline, err := reader.ReadString('\n')
+	if err != nil {
+		fmt.Println("Failed to read string:", err)
+		os.Exit(1)
 	}
+	reqline = strings.Trim(reqline, "\r\n")
+	reqparts := strings.Split(reqline, " ")
+	headers := make(map[string]string)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Println("Failed to read string:", err)
+			os.Exit(1)
+		}
+		if line == "\r\n" {
+			break
+		}
+		line = strings.Trim(line, "\r\n")
+		headerparts := strings.Split(line, ": ")
+		headers[headerparts[0]] = headerparts[1]
+	}
+	body := ""
+	if val, ok := headers["Content-Length"]; ok {
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			fmt.Println("Failed to convert integer:", err)
+			os.Exit(1)
+		}
+		buf := make([]byte, n)
+		_, err = conn.Read(buf)
+		if err != nil {
+			fmt.Println("Failed to read from connection:", err)
+			os.Exit(1)
+		}
+		body = string(buf)
+	}
+	return request{reqparts[0], reqparts[1], reqparts[2], body, headers}
 }
 
 type response struct {
